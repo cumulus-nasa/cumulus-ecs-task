@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/) and this p
 
 ## [Unreleased]
 
+### Fixed
+- **CUMULUS-802** - When a SIGTERM is received, stop polling for new jobs
+
 ## [v1.2.4]
 
 ### Fixed
