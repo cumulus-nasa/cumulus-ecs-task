@@ -1,14 +1,14 @@
 'use strict';
 
-import os from 'os';
-import fs from 'fs-extra';
-import path from 'path';
-import test from 'ava';
-import nock from 'nock';
-import sinon from 'sinon';
-import AWS from 'aws-sdk';
-import archiver from 'archiver';
-import { runTask, runServiceFromActivity } from '../index';
+const archiver = require('archiver');
+const AWS = require('aws-sdk');
+const fs = require('fs-extra');
+const nock = require('nock');
+const os = require('os');
+const path = require('path');
+const sinon = require('sinon');
+const test = require('ava');
+const { runTask, runServiceFromActivity } = require('..');
 
 test.beforeEach(async (t) => {
   t.context.tempDir = path.join(os.tmpdir(), 'cumulus-ecs-task', `${Date.now()}`, path.sep);
@@ -163,11 +163,11 @@ test.serial('Retry zip download if connection-timeout received', async (t) => {
 
   const timeoutFailure = nock('https://example.com')
     .get(t.context.lambdaZipUrlPath)
-      .replyWithError({ code: 'ETIMEDOUT' });
+    .replyWithError({ code: 'ETIMEDOUT' });
 
   nock('https://example.com')
     .get(t.context.lambdaZipUrlPath)
-      .reply(200, () => fs.createReadStream(t.context.lambdaZip));
+    .reply(200, () => fs.createReadStream(t.context.lambdaZip));
 
   const event = { hi: 'bye' };
 

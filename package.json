@@ -1,13 +1,10 @@
 {
   "name": "@cumulus/cumulus-ecs-task",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "Run lambda functions in ECS",
   "main": "index.js",
-  "bin": {
-    "cumulus-ecs-task": "index.js"
-  },
   "engines": {
-    "node": ">=8.11.0"
+    "node": ">=8.10.0"
   },
   "keywords": [
     "CUMULUS",
@@ -19,33 +16,42 @@
     "url": "git@github.com:cumulus-nasa/cumulus-ecs-task.git"
   },
   "license": "Apache-2.0",
-  "dependencies": {
-    "aws-sdk": "^2.203.0",
-    "cliclopts": "^1.1.1",
-    "lodash": "^4.17.5",
-    "minimist": "^1.2.0",
-    "respawn": "^2.5.0",
-    "rimraf": "^2.6.2",
-    "p-retry": "^2.0.0"
-  },
   "scripts": {
-    "test": "ava tests/test.js",
+    "test": "ava",
     "start": "./bin/service.js",
     "lint": "eslint . --ext js",
     "build": "docker build -t cumuluss/cumulus-ecs-task .",
     "release": "./bin/release.sh",
     "docker:clean": "docker rm -v $(docker ps -a -q -f status=exited); docker rmi $(docker images -f \"dangling=true\" -q); true"
   },
+  "ava": {
+    "files": [
+      "tests/**/*.js",
+      "!tests/data/**/*.js"
+    ]
+  },
+  "dependencies": {
+    "aws-sdk": "^2.203.0",
+    "cliclopts": "^1.1.1",
+    "lodash.isboolean": "^3.0.3",
+    "lodash.isobject": "^3.0.2",
+    "lodash.isstring": "^4.0.1",
+    "minimist": "^1.2.0",
+    "rimraf": "^2.6.2",
+    "p-retry": "^2.0.0"
+  },
   "devDependencies": {
     "archiver": "^2.1.1",
     "ava": "^0.25.0",
-    "babel-eslint": "^6.1.2",
-    "eslint": "^3.2.2",
-    "eslint-config-airbnb": "^10.0.0",
-    "eslint-plugin-import": "^1.13.0",
-    "eslint-plugin-jsdoc": "^3.3.1",
-    "eslint-plugin-jsx-a11y": "^2.1.0",
-    "eslint-plugin-react": "^6.0.0",
+    "babel-eslint": "^8.2.2",
+    "eslint": "^5.5.0",
+    "eslint-config-airbnb-base": "^13.1.0",
+    "eslint-plugin-eslint-comments": "^3.0.1",
+    "eslint-plugin-import": "^2.9.0",
+    "eslint-plugin-jsdoc": "^3.7.1",
+    "eslint-plugin-lodash": "^2.7.0",
+    "eslint-plugin-node": "^7.0.1",
+    "eslint-plugin-unicorn": "^4.0.3",
     "fs-extra": "^7.0.0",
     "jsonfilter": "^1.1.2",
     "nock": "^9.6.1",

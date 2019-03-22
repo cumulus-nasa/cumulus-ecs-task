@@ -3,6 +3,9 @@
 'use strict';
 
 const https = require('https');
+const isBoolean = require('lodash.isboolean');
+const isObject = require('lodash.isobject');
+const isString = require('lodash.isstring');
 const path = require('path');
 const execSync = require('child_process').execSync;
 const assert = require('assert');
@@ -17,10 +20,8 @@ const log = new Logger();
 const region = process.env.AWS_DEFAULT_REGION || 'us-east-1';
 AWS.config.update({ region: region });
 
-// eslint-disable-next-line require-jsdoc
 const isLambdaFunctionArn = (id) => id.startsWith('arn:aws:lambda');
 
-// eslint-disable-next-line require-jsdoc
 function getFunctionName(lambdaId) {
   if (isLambdaFunctionArn(lambdaId)) {
     const FUNCTION_NAME_FIELD = 6;
@@ -31,7 +32,6 @@ function getFunctionName(lambdaId) {
   return lambdaId;
 }
 
-// eslint-disable-next-line require-jsdoc
 const getLogSenderFromLambdaId = (lambdaId) =>
   `cumulus-ecs-task/${getFunctionName(lambdaId)}`;
 
@@ -73,9 +73,7 @@ function downloadFile(url, destinationFilename) {
         }
 
         throw new pRetry.AbortError(err);
-      }
-    )
-  );
+      }));
 }
 
 /**
@@ -124,6 +122,7 @@ async function downloadLambdaHandler(lambdaArn, workDir, taskDir) {
   const resp = await getLambdaZip(lambdaArn, workDir);
 
   execSync(`unzip -o ${resp.filepath} -d ${taskDir}`);
+  // eslint-disable-next-line import/no-dynamic-require
   const task = require(`${taskDir}/${resp.moduleFileName}`); //eslint-disable-line global-require
   return task[resp.moduleFunctionName];
 }
@@ -178,18 +177,17 @@ function sendTaskSuccess(taskToken, output) {
 }
 
 /**
-* receives an activity message from the StepFunction Activity Queue
-*
-* @param {string} activityArn - the activity arn
-* @returns {Promise} the lambda task event object and the
-*                    activity task's token. If the activity task returns
-*                    empty, the function returns undefined response
-**/
+ * receives an activity message from the StepFunction Activity Queue
+ *
+ * @param {string} activityArn - the activity arn
+ * @returns {Promise<Object|null>} the lambda task event object and the activity
+ *   task's token. If the activity task return empty, the function returns null
+ */
 async function getActivityTask(activityArn) {
   const sf = new AWS.StepFunctions({ apiVersion: '2016-11-23' });
   const data = await sf.getActivityTask({ activityArn }).promise();
 
-  if (data && data.taskToken && data.taskToken.length && data.input) {
+  if (data.taskToken.length > 0 && data.input) {
     const token = data.taskToken;
     const event = JSON.parse(data.input);
     return {
@@ -198,7 +196,8 @@ async function getActivityTask(activityArn) {
     };
   }
   log.info('No tasks in the activity queue');
-  return undefined;
+
+  return null;
 }
 
 
@@ -307,32 +306,39 @@ async function runTask(options) {
 * @returns {Promise<undefined>} undefined
 **/
 async function runServiceFromSQS(options) {
-  assert(options && typeof options === 'object', 'options.lambdaArn string is required');
-  assert(options.lambdaArn && typeof options.lambdaArn === 'string', 'options.lambdaArn string is required');
-  assert(options.sqsUrl && typeof options.sqsUrl === 'string', 'options.sqsUrl string is required');
-  assert(options.taskDirectory && typeof options.taskDirectory === 'string', 'options.taskDirectory string is required');
-  assert(options.workDirectory && typeof options.workDirectory === 'string', 'options.workDirectory string is required');
+  assert(isObject(options), 'options.lambdaArn string is required');
+  assert(isString(options.lambdaArn), 'options.lambdaArn string is required');
+  assert(isString(options.sqsUrl), 'options.sqsUrl string is required');
+  assert(isString(options.taskDirectory), 'options.taskDirectory string is required');
+  assert(isString(options.workDirectory), 'options.workDirectory string is required');
 
   const sqs = new AWS.SQS({ apiVersion: '2016-11-23' });
 
   const lambdaArn = options.lambdaArn;
   const sqsUrl = options.sqsUrl;
-  const taskDir = options.taskDirectory;
-  const workDir = options.workDirectory;
-  const runForever = options.runForever || true;
+  const taskDirectory = options.taskDirectory;
+  const workDirectory = options.workDirectory;
+
+  const runForever = isBoolean(options.runForever) ? options.runForever : true;
 
   log.sender = getLogSenderFromLambdaId(lambdaArn);
 
   // the cumulus-message-adapter dir is in an unexpected place,
   // so tell the adapter where to find it
-  process.env.CUMULUS_MESSAGE_ADAPTER_DIR = `${taskDir}/cumulus-message-adapter/`;
+  process.env.CUMULUS_MESSAGE_ADAPTER_DIR = `${taskDirectory}/cumulus-message-adapter/`;
 
   log.info('Downloading the Lambda function');
-  const handler = await downloadLambdaHandler(lambdaArn, workDir, taskDir);
-  let counter = 1;
-  while (runForever) {
+  const handler = await downloadLambdaHandler(lambdaArn, workDirectory, taskDirectory);
+
+  let sigTermReceived = false;
+  process.on('SIGTERM', () => {
+    log.info('Received SIGTERM signal');
+    sigTermReceived = true;
+  });
+
+  /* eslint-disable no-await-in-loop */
+  do {
     try {
-      log.info(`[${counter}] Getting tasks from ${sqsUrl}`);
       const resp = await sqs.receiveMessage({
         QueueUrl: sqsUrl,
         WaitTimeSeconds: 20
@@ -361,8 +367,8 @@ async function runServiceFromSQS(options) {
     catch (e) {
       log.error('Task failed. trying again', e);
     }
-    counter += 1;
-  }
+  } while (runForever && !sigTermReceived);
+  /* eslint-enable no-await-in-loop */
 }
 
 /**
@@ -379,58 +385,56 @@ async function runServiceFromSQS(options) {
 * @param {boolean} [options.runForever=true] - whether to poll the activity forever (defaults to true)
 * @returns {Promise<undefined>} undefined
 **/
-async function runServiceFromActivity(options) {
-  assert(options && typeof options === 'object', 'options.lambdaArn string is required');
-  assert(options.lambdaArn && typeof options.lambdaArn === 'string', 'options.lambdaArn string is required');
-  assert(options.activityArn && typeof options.activityArn === 'string', 'options.activityArn string is required');
-  assert(options.taskDirectory && typeof options.taskDirectory === 'string', 'options.taskDirectory string is required');
-  assert(options.workDirectory && typeof options.workDirectory === 'string', 'options.workDirectory string is required');
+async function runServiceFromActivity(options = {}) {
+  assert(isObject(options), 'options.lambdaArn string is required');
+  assert(isString(options.lambdaArn), 'options.lambdaArn string is required');
+  assert(isString(options.activityArn), 'options.activityArn string is required');
+  assert(isString(options.taskDirectory), 'options.taskDirectory string is required');
+  assert(isString(options.workDirectory), 'options.workDirectory string is required');
   if (options.heartbeat) {
     assert(Number.isInteger(options.heartbeat), 'options.heartbeat must be an integer');
   }
 
-  const lambdaArn = options.lambdaArn;
-  const activityArn = options.activityArn;
-  const taskDir = options.taskDirectory;
-  const workDir = options.workDirectory;
-  const heartbeatInterval = options.heartbeat;
+  const runForever = isBoolean(options.runForever) ? options.runForever : true;
 
-  let runForever = true;
-
-  log.sender = getLogSenderFromLambdaId(lambdaArn);
+  log.sender = getLogSenderFromLambdaId(options.lambdaArn);
 
   // the cumulus-message-adapter dir is in an unexpected place,
   // so tell the adapter where to find it
-  process.env.CUMULUS_MESSAGE_ADAPTER_DIR = `${taskDir}/cumulus-message-adapter/`;
+  process.env.CUMULUS_MESSAGE_ADAPTER_DIR = `${options.taskDirectory}/cumulus-message-adapter/`;
 
   log.info('Downloading the Lambda function');
-  const handler = await downloadLambdaHandler(lambdaArn, workDir, taskDir);
-  let counter = 1;
-  while (runForever) {
-    log.info(`[${counter}] Getting tasks from ${activityArn}`);
-    let activity;
-    try {
-      activity = await getActivityTask(activityArn);
-      if (activity) {
+  const handler = await downloadLambdaHandler(
+    options.lambdaArn,
+    options.workDirectory,
+    options.taskDirectory
+  );
+
+  let sigTermReceived = false;
+  process.on('SIGTERM', () => {
+    log.info('Received SIGTERM signal');
+    sigTermReceived = true;
+  });
+
+  /* eslint-disable no-await-in-loop */
+  do {
+    const task = await getActivityTask(options.activityArn);
+
+    if (task !== null) {
+      try {
         await handlePollResponse(
-          activity.event,
-          activity.token,
+          task.event,
+          task.token,
           handler,
-          heartbeatInterval
+          options.heartbeat
         );
       }
-    }
-    catch (e) {
-      log.error('Task failed. trying again', e);
-      if (activity) {
-        await sendTaskFailure(activity.token, e);
+      catch (err) {
+        await sendTaskFailure(task.token, err);
       }
     }
-    counter += 1;
-    if (options.runForever !== null && options.runForever !== undefined) {
-      runForever = options.runForever;
-    }
-  }
+  } while (runForever && !sigTermReceived);
+  /* eslint-enable no-await-in-loop */
 }
 
 module.exports = {

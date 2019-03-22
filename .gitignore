@@ -12,3 +12,4 @@ cumulus-message-adapter
 task
 yarn.lock
 .tmp-work
+.vscode/launch.json
